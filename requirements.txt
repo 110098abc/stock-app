@@ -1,6 +1,5 @@
 streamlit
 akshare
-zzshare
 pandas
 numpy
 requests
