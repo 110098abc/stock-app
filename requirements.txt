@@ -1,6 +1,6 @@
 ```text
 streamlit
-akshare>=1.12.0
+akshare
 zzshare
 pandas
 numpy
