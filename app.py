@@ -3,12 +3,13 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime
+import akshare as ak
 
-st.set_page_config(page_title="A股与北向资金联动看板", layout="wide")
-st.title("📊 专属A股 · 北向资金与板块联动看板")
+st.set_page_config(page_title="A股监控看板", layout="wide")
+st.title("📊 专属A股监控看板")
 st.caption(f"最后刷新时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# 1. 核心指数
+# ================= 1. 核心指数 =================
 def get_idx(code):
     try:
         r = requests.get(f"https://qt.gtimg.cn/q={code}", timeout=5)
@@ -24,109 +25,34 @@ c2.metric("深证成指", get_idx("sz399001"))
 c3.metric("恒生指数", get_idx("hkHSI"))
 c4.metric("恒生科技", get_idx("hkHSTECH"))
 
-# 2. 北向资金与板块交互看板
-st.subheader("💰 北向资金与板块流向")
-
-import akshare as ak
-
+# ================= 2. 北向资金总结 =================
+st.subheader("💰 北向资金流向")
 @st.cache_data(ttl=900)
 def get_north_summary():
     try:
         df = ak.stock_hsgt_fund_flow_summary_em()
-        north_row = df[(df['资金方向'] == '北向') & (df['类型'] == '合计')]
+        # 兼容不同版本的列名
+        col_dir = '资金方向' if '资金方向' in df.columns else '类型'
+        north_row = df[df[col_dir] == '北向']
         if not north_row.empty:
-            return float(north_row['成交净买额'].iloc[0])
+            net_buy = float(north_row['成交净买额'].iloc[0])
+            return net_buy
     except:
         pass
     return None
 
-@st.cache_data(ttl=900)
-def get_north_board_flow(direction="净流入"):
-    try:
-        df = ak.stock_hsgt_board_rank_em(symbol="北向资金增持行业板块排行", indicator="今日")
-        sort_col = "北向资金今日增持估计-市值"
-        if sort_col in df.columns:
-            if direction == "净流入":
-                df = df.sort_values(by=sort_col, ascending=False)
-            else:
-                df = df.sort_values(by=sort_col, ascending=True)
-        rename_map = {
-            "名称": "行业板块",
-            "最新涨跌幅": "当日涨跌幅(%)",
-            sort_col: "北向今日增持估计(亿元)"
-        }
-        show_cols = [c for c in rename_map.keys() if c in df.columns]
-        out = df[show_cols].head(10).rename(columns=rename_map)
-        if "北向今日增持估计(亿元)" in out.columns:
-            out["北向今日增持估计(亿元)"] = (out["北向今日增持估计(亿元)"] / 1e8).round(2)
-        return out
-    except Exception as e:
-        return None
-
-@st.cache_data(ttl=900)
-def get_sector_main_flow():
-    try:
-        df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
-        cols = ["名称", "今日涨跌幅", "主力净流入-净额"]
-        show_cols = [c for c in cols if c in df.columns]
-        out = df[show_cols].copy()
-        if "主力净流入-净额" in out.columns:
-            out["主力净流入-净额"] = (out["主力净流入-净额"] / 1e8).round(2)
-        return out.rename(columns={"名称": "行业板块", "今日涨跌幅": "当日涨跌幅(%)", "主力净流入-净额": "主力净额(亿元)"})
-    except:
-        return None
-
 north_net = get_north_summary()
 if north_net is not None:
-    color = "green" if north_net > 0 else "red"
-    st.markdown(f"**今日北向资金合计净买额：** :{color}[**{north_net:.2f} 亿元**]")
-
-direction = st.radio("点击切换查看北向资金增减持前十板块：", ["净流入", "净流出"], horizontal=True)
-
-col_a, col_b = st.columns(2)
-with col_a:
-    st.markdown(f"#### 📈 北向资金{direction}排名")
-    board_df = get_north_board_flow(direction)
-    if board_df is not None:
-        st.dataframe(board_df, use_container_width=True, hide_index=True)
+    if north_net > 0:
+        st.success(f"今日北向资金**净流入**：{north_net:.2f} 亿元")
     else:
-        st.info("北向板块明细数据暂不可用。")
+        st.error(f"今日北向资金**净流出**：{abs(north_net):.2f} 亿元")
+else:
+    st.info("北向资金数据暂不可用（服务器接口被限流或休市）。")
 
-with col_b:
-    st.markdown("#### 💵 行业主力资金净额排行")
-    main_df = get_sector_main_flow()
-    if main_df is not None:
-        st.dataframe(main_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("主力资金数据暂不可用。")
-
-# 3. 中线趋势与短期题材定性
-st.subheader("🔥 中期趋势与短期题材定性")
-@st.cache_data(ttl=1800)
-def get_sector_trend_analysis():
-    try:
-        df = ak.stock_board_industry_name_em()
-        df = df.sort_values(by="涨跌幅", ascending=False).head(15)
-        def tag(row):
-            chg = float(row.get("涨跌幅", 0) or 0)
-            if chg >= 2.5: return "⚡ 短期题材 / 资金脉冲"
-            elif 0.5 <= chg < 2.5: return "📈 中线趋势 / 持续吸金"
-            else: return "⏳ 周期波段 / 暂观察"
-        df["定性"] = df.apply(tag, axis=1)
-        cols = ["板块名称", "涨跌幅", "定性"]
-        show_cols = [c for c in cols if c in df.columns]
-        return df[show_cols].rename(columns={"涨跌幅": "当日涨跌幅(%)"})
-    except:
-        return None
-
-trend_df = get_sector_trend_analysis()
-if trend_df is not None:
-    st.dataframe(trend_df, use_container_width=True, hide_index=True)
-    st.caption("提示：单日大涨多为短期题材脉冲；涨幅适中且资金连续流入更具中线趋势特征。")
-
-# 4. 自选基金 T+1 判断
-st.subheader("💰 自选基金每日判断 (T+1 规则适配)")
-fund_codes = st.text_input("输入基金代码 (逗号分隔)", "110011,161725")
+# ================= 3. 自选基金 T+1 判断 =================
+st.subheader("💰 自选基金每日判断")
+fund_codes = st.text_input("输入自选基金代码 (逗号分隔)", "110011,161725")
 
 @st.cache_data(ttl=3600)
 def analyze_fund(code):
@@ -155,6 +81,52 @@ if fund_codes:
     results = [r for r in results if r]
     if results:
         st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-        st.caption("场外基金按当日净值确认，建议结合 5 日与 10 日板块资金趋势判断，避免单日追高。")
     else:
         st.info("未能获取基金净值数据，请核对代码。")
+
+# ================= 4. 板块每日定性审查 =================
+st.subheader("🔥 板块定性（中期趋势 / 短期题材）")
+st.caption("每天自动审查所有行业板块，仅显示符合趋势或题材特征的板块。")
+
+@st.cache_data(ttl=1800)
+def get_filtered_sectors():
+    try:
+        # 获取全市场行业板块当日数据
+        df = ak.stock_board_industry_name_em()
+        
+        results = []
+        for _, row in df.iterrows():
+            try:
+                chg = float(row.get("涨跌幅", 0) or 0)
+            except:
+                chg = 0.0
+                
+            # 过滤条件：只要符合短期或中期的
+            tag = ""
+            if chg >= 3.0:
+                tag = "⚡ 短期题材 (资金脉冲)"
+            elif 0.5 <= chg < 3.0:
+                tag = "📈 中期趋势 (温和上行)"
+            else:
+                continue # 不符合的，直接跳过不显示
+                
+            results.append({
+                "板块名称": row.get("板块名称", ""),
+                "当日涨跌幅(%)": chg,
+                "定性判断": tag,
+                "领涨股": row.get("领涨股票", "")
+            })
+            
+        # 按涨幅从高到低排序
+        res_df = pd.DataFrame(results)
+        if not res_df.empty:
+            res_df = res_df.sort_values(by="当日涨跌幅(%)", ascending=False)
+        return res_df
+    except Exception as e:
+        return None
+
+filtered_sectors = get_filtered_sectors()
+if filtered_sectors is not None and not filtered_sectors.empty:
+    st.dataframe(filtered_sectors, use_container_width=True, hide_index=True)
+else:
+    st.info("今日暂无符合中线趋势或短期题材特征的强势板块，或数据获取失败。")
