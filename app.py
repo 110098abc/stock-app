@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,15 +30,7 @@ def get_us_treasury():
     import akshare as ak
     try:
         df = ak.bond_zh_us_rate()
-        df = df.dropna(subset=["美国国债收益率10年", "美国国债收益率30年"])
-        last = df.iloc[-1]
-        return {
-            "10Y": round(float(last["美国国债收益率10年"]), 3),
-            "30Y": round(float(last["美国国债收益率30年"]), 3),
-            "hist10": df["美国国债收益率10年"].tail(30).tolist(),
-        }
-    except Exception:
-        return {"10Y": None, "30Y": None, "hist10": []}
+        df = df.dropna(subset=["美 "30Y": None, "hist10": []}
 
 @st.cache_data(ttl=3600)
 def get_sectors():
@@ -147,5 +138,12 @@ if codes_input:
         st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
         st.caption("依据：近20日动量 + 60日趋势R² + 均线偏离。仅供参考。")
     else:
-        st.info("未能获取基金数据，请检查代码。")
-```
+        st.info("未能获取基金数据，请检查代码。")国国债收益率10年", "美国国债收益率30年"])
+        last = df.iloc[-1]
+        return {
+            "10Y": round(float(last["美国国债收益率10年"]), 3),
+            "30Y": round(float(last["美国国债收益率30年"]), 3),
+            "hist10": df["美国国债收益率10年"].tail(30).tolist(),
+        }
+    except Exception:
+        return {"10Y": None,
