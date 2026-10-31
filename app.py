@@ -6,7 +6,7 @@ from datetime import datetime
 import akshare as ak
 
 st.set_page_config(page_title="A股监控看板", layout="wide")
-st.title("📊 专属A股监控看板")
+st.title("📊 专属A股与宏观监控看板")
 st.caption(f"最后刷新时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # ================= 1. 核心指数 =================
@@ -25,13 +25,40 @@ c2.metric("深证成指", get_idx("sz399001"))
 c3.metric("恒生指数", get_idx("hkHSI"))
 c4.metric("恒生科技", get_idx("hkHSTECH"))
 
-# ================= 2. 北向资金总结 =================
+# ================= 2. 美债收益率 (5年, 10年, 30年) =================
+st.subheader("🌐 美债收益率")
+@st.cache_data(ttl=3600)
+def get_us_treasury():
+    try:
+        df = ak.bond_zh_us_rate()
+        # 剔除空值并取最后一行
+        df = df.dropna(subset=["美国国债收益率5年", "美国国债收益率10年", "美国国债收益率30年"])
+        last = df.iloc[-1]
+        return {
+            "5Y": float(last["美国国债收益率5年"]),
+            "10Y": float(last["美国国债收益率10年"]),
+            "30Y": float(last["美国国债收益率30年"])
+        }
+    except:
+        return None
+
+treasury = get_us_treasury()
+c5, c6, c7 = st.columns(3)
+if treasury:
+    c5.metric("5年期美债收益率", f"{treasury['5Y']}%")
+    c6.metric("10年期美债收益率", f"{treasury['10Y']}%")
+    c7.metric("30年期美债收益率", f"{treasury['30Y']}%")
+else:
+    c5.metric("5年期美债收益率", "获取失败")
+    c6.metric("10年期美债收益率", "获取失败")
+    c7.metric("30年期美债收益率", "获取失败")
+
+# ================= 3. 北向资金总结 =================
 st.subheader("💰 北向资金流向")
 @st.cache_data(ttl=900)
 def get_north_summary():
     try:
         df = ak.stock_hsgt_fund_flow_summary_em()
-        # 兼容不同版本的列名
         col_dir = '资金方向' if '资金方向' in df.columns else '类型'
         north_row = df[df[col_dir] == '北向']
         if not north_row.empty:
@@ -50,7 +77,7 @@ if north_net is not None:
 else:
     st.info("北向资金数据暂不可用（服务器接口被限流或休市）。")
 
-# ================= 3. 自选基金 T+1 判断 =================
+# ================= 4. 自选基金 T+1 判断 =================
 st.subheader("💰 自选基金每日判断")
 fund_codes = st.text_input("输入自选基金代码 (逗号分隔)", "110011,161725")
 
@@ -84,16 +111,14 @@ if fund_codes:
     else:
         st.info("未能获取基金净值数据，请核对代码。")
 
-# ================= 4. 板块每日定性审查 =================
+# ================= 5. 板块每日定性审查 =================
 st.subheader("🔥 板块定性（中期趋势 / 短期题材）")
 st.caption("每天自动审查所有行业板块，仅显示符合趋势或题材特征的板块。")
 
 @st.cache_data(ttl=1800)
 def get_filtered_sectors():
     try:
-        # 获取全市场行业板块当日数据
         df = ak.stock_board_industry_name_em()
-        
         results = []
         for _, row in df.iterrows():
             try:
@@ -101,14 +126,13 @@ def get_filtered_sectors():
             except:
                 chg = 0.0
                 
-            # 过滤条件：只要符合短期或中期的
             tag = ""
             if chg >= 3.0:
                 tag = "⚡ 短期题材 (资金脉冲)"
             elif 0.5 <= chg < 3.0:
                 tag = "📈 中期趋势 (温和上行)"
             else:
-                continue # 不符合的，直接跳过不显示
+                continue 
                 
             results.append({
                 "板块名称": row.get("板块名称", ""),
@@ -117,7 +141,6 @@ def get_filtered_sectors():
                 "领涨股": row.get("领涨股票", "")
             })
             
-        # 按涨幅从高到低排序
         res_df = pd.DataFrame(results)
         if not res_df.empty:
             res_df = res_df.sort_values(by="当日涨跌幅(%)", ascending=False)
